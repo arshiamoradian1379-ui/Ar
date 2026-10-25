@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WebAR Image Target</title>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+<style>
+:root{--bg:#000;--card:#0d0d0d;--line:#2a2a2a;--tx:#fff;--mut:#9a9a9a;--ac:#fff;--acx:#000;--ok:#fff;--warn:#777;--err:#e74c3c}
+@media (prefers-color-scheme:light){:root{--bg:#fff;--card:#f5f5f5;--line:#d9d9d9;--tx:#000;--mut:#6a6a6a;--ac:#000;--acx:#fff}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Vazirmatn",Tahoma,sans-serif}
+#home{max-width:520px;margin:0 auto;padding:max(20px,env(safe-area-inset-top)) 18px 40px}
+h1{font-size:22px;margin:8px 0 4px}
+p.sub{color:var(--mut);margin:0 0 18px;font-size:14px;line-height:1.7}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px}
+.card label{display:block;font-weight:600;font-size:14px;margin-bottom:4px}
+.card small{display:block;color:var(--mut);font-size:12px;margin-bottom:10px}
+.row{display:flex;gap:12px;align-items:center}
+.pick{flex:1;border:1.5px dashed var(--line);border-radius:12px;padding:12px;text-align:center;font-size:13px;color:var(--mut);cursor:pointer}
+.pick input{display:none}
+.prev{width:72px;height:72px;border-radius:12px;background:var(--bg);border:1px solid var(--line);object-fit:cover;display:none}
+button{font:inherit;cursor:pointer}
+#start{width:100%;padding:15px;border:0;border-radius:14px;background:#ef6c00;color:#fff;font-size:16px;font-weight:700;margin-top:6px}
+#start:disabled{opacity:.5}
+.tips{font-size:13px;color:var(--mut);line-height:1.9;padding-inline-start:18px;margin:10px 0 0}
+#err{display:none;background:transparent;border:1px solid var(--err);color:var(--err);padding:12px;border-radius:12px;font-size:13px;line-height:1.7;margin-bottom:12px}
+#ar{position:fixed;inset:0;background:#000;display:none}
+#ar{touch-action:none;-webkit-user-select:none;user-select:none}
+#view{position:absolute;inset:0;overflow:hidden;touch-action:none}
+#view video,#view canvas{object-fit:cover}
+#hud{position:absolute;inset:0;pointer-events:none;padding:max(14px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom));display:flex;flex-direction:column;justify-content:space-between}
+#top{display:flex;justify-content:space-between;align-items:center}
+.chip{pointer-events:auto;background:rgba(0,0,0,.55);backdrop-filter:blur(8px);color:#fff;border-radius:99px;padding:8px 14px;font-size:13px;display:flex;align-items:center;gap:8px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--warn)}
+.dot.ok{background:var(--ok)}.dot.bad{background:transparent;border:2px solid #fff}
+#hint{align-self:center;background:rgba(0,0,0,.55);backdrop-filter:blur(8px);color:#fff;padding:10px 18px;border-radius:14px;font-size:14px;text-align:center;transition:opacity .3s}
+#bar{display:flex;gap:10px;justify-content:center}
+#bar button{pointer-events:auto;border:0;border-radius:99px;padding:11px 18px;background:rgba(0,0,0,.55);backdrop-filter:blur(8px);color:#fff;font-size:14px}
+#dbgc{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;display:none}
+#dbg{position:absolute;top:56px;left:10px;margin:0;color:#0f0;background:rgba(0,0,0,.6);font:11px/1.5 monospace;padding:6px 8px;border-radius:8px;display:none;pointer-events:none;direction:ltr;text-align:left;white-space:pre}
+#loading{position:absolute;inset:0;background:rgba(0,0,0,.8);color:#fff;display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;z-index:5;font-size:15px}
+#loading.on{display:flex}
+#prog{width:200px;height:5px;background:#333;border-radius:9px;overflow:hidden}
+#prog i{display:block;height:100%;width:0;background:var(--ac);transition:width .2s}
+</style>
+</head>
+<body>
+
+<div id="home">
+  <h1>WebAR با Image Target</h1>
+  <p class="sub">یک تصویر مرجع و یک محتوای AR انتخاب کنید؛ دوربین تصویر مرجع را ردیابی می‌کند و محتوا را روی آن قرار می‌دهد.</p>
+  <div id="err"></div>
+
+  <div class="card">
+    <label>Reference Image</label>
+    <small>تصویری که دوربین باید تشخیص دهد (بهتر است جزئیات و کنتراست زیاد داشته باشد)</small>
+    <div class="row">
+      <label class="pick"><input type="file" id="refIn" accept="image/*"><span id="refName">انتخاب تصویر مرجع</span></label>
+      <img id="refPrev" class="prev" alt="">
+    </div>
+  </div>
+
+  <div class="card">
+    <label>AR Content</label>
+    <small>تصویر یا ویدئویی که روی تصویر مرجع نمایش داده می‌شود</small>
+    <div class="row">
+      <label class="pick"><input type="file" id="conIn" accept="image/*,video/*"><span id="conName">انتخاب تصویر یا ویدئو</span></label>
+      <img id="conPrev" class="prev" alt=""><video id="conVPrev" class="prev" muted playsinline style="display:none"></video>
+    </div>
+  </div>
+
+  <div class="card" id="rep" style="display:none"></div>
+  <button id="start">Start AR</button>
+  <ul class="tips">
+    <li>روی HTTPS یا localhost اجرا کنید و اجازه دسترسی به دوربین را بدهید.</li>
+    <li>تصویر مرجع را چاپ کنید یا روی صفحه‌ی دیگری نشان دهید و مقابل دوربین بگیرید.</li>
+    <li>نور کافی و تصویر بدون بازتاب، ردیابی را پایدارتر می‌کند.</li>
+  </ul>
+  <p style="text-align:center;color:var(--mut);font-size:11px;margin-top:18px">v7 · orange</p>
+</div>
+
+<div id="ar">
+  <div id="view"></div>
+  <div id="loading"><div id="loadTxt">در حال آماده‌سازی…</div><div id="prog"><i></i></div></div>
+  <canvas id="dbgc"></canvas><pre id="dbg"></pre>
+  <div id="hud">
+    <div id="top">
+      <div class="chip"><span class="dot" id="dot"></span><span id="status">Camera Ready</span></div>
+      <div class="chip" id="stopBtn" style="cursor:pointer">✕ خروج</div>
+    </div>
+    <div id="hint">تصویر مرجع را مقابل دوربین قرار دهید</div>
+    <div id="bar" style="visibility:hidden">
+      <button id="playBtn">⏸ Pause</button>
+      <button id="muteBtn">🔇 Unmute</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+const $ = id => document.getElementById(id);
+const MIND = "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/";
+let refFile = null, conFile = null, conIsVideo = false;
+let session = null;
+
+/* ---------- UI helpers ---------- */
+function showError(msg){ const e=$("err"); e.textContent=msg; e.style.display="block"; window.scrollTo(0,0); }
+function clearError(){ $("err").style.display="none"; }
+function setStatus(txt, kind){ $("status").textContent=txt; $("dot").className="dot "+(kind||""); }
+function setLoading(on, txt, p){
+  $("loading").classList.toggle("on", on);
+  if(txt) $("loadTxt").textContent = txt;
+  if(p!=null) $("prog").firstElementChild.style.width = Math.round(p*100)+"%";
+}
+
+
+/* ---------- Target Analyzer ---------- */
+const clamp01 = v => Math.max(0, Math.min(1, v));
+const lvl = v => v > .75 ? "Excellent" : v > .5 ? "Good" : v > .3 ? "Fair" : "Weak";
+function analyze(img){
+  const W0 = img.naturalWidth, H0 = img.naturalHeight, k = Math.min(1, 320 / Math.max(W0, H0));
+  const w = Math.round(W0 * k), h = Math.round(H0 * k), n = w * h;
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const cx = c.getContext("2d", { willReadFrequently: true }); cx.drawImage(img, 0, 0, w, h);
+  const d = cx.getImageData(0, 0, w, h).data, g = new Float32Array(n);
+  let m = 0, sat = 0;
+  for(let i = 0; i < n; i++){ const r = d[i*4], gg = d[i*4+1], b = d[i*4+2]; g[i] = .299*r + .587*gg + .114*b; m += g[i]; const mx = Math.max(r, gg, b); sat += mx ? (mx - Math.min(r, gg, b)) / mx : 0; }
+  m /= n; sat /= n;
+  let v = 0; const hist = new Uint32Array(256);
+  for(let i = 0; i < n; i++){ v += (g[i] - m) ** 2; hist[g[i] | 0]++; }
+  const sd = Math.sqrt(v / n); let a = 0, lo = 0, hi = 255;
+  while(lo < 255 && (a += hist[lo]) < n * .02) lo++; a = 0; while(hi > 0 && (a += hist[hi]) < n * .02) hi--;
+  const G = 8, cF = new Uint16Array(64), cM = new Float32Array(64), cN = new Uint16Array(64);
+  let feat = 0, lap = 0, ln = 0, magS = 0;
+  for(let y = 3; y < h - 3; y++) for(let x = 3; x < w - 3; x++){
+    const i = y * w + x, gx = g[i+1] - g[i-1], gy = g[i+w] - g[i-w], mag = Math.hypot(gx, gy);
+    const L = 4*g[i] - g[i-1] - g[i+1] - g[i-w] - g[i+w]; lap += L * L; ln++; magS += mag;
+    const ci = ((y / h * G) | 0) * G + ((x / w * G) | 0); cN[ci]++; cM[ci] += mag;
+    if(mag > 40){
+      let A = 0, B = 0, C = 0;
+      for(let dy = -2; dy <= 2; dy++) for(let dx = -2; dx <= 2; dx++){ const j = i + dy*w + dx, ax = g[j+1] - g[j-1], ay = g[j+w] - g[j-w]; A += ax*ax; B += ay*ay; C += ax*ay; }
+      const tr = A + B, mn = tr / 2 - Math.sqrt(Math.max(0, tr*tr/4 - (A*B - C*C)));
+      if(mn > 6000){ feat++; cF[ci]++; }
+    }
+  }
+  let cover = 0, blank = 0;
+  for(let i = 0; i < 64; i++){ if(cF[i] >= 2) cover++; if(cN[i] && cM[i] / cN[i] < 6) blank++; }
+  cover /= 64; blank /= 64;
+  // repetition: max normalized self-correlation under shifts
+  let rep = 0;
+  for(const [sx, sy] of [[w/10,0],[w/6,0],[w/4,0],[w/3,0],[0,h/10],[0,h/6],[0,h/4],[0,h/3]]){
+    const dx = Math.round(sx), dy = Math.round(sy); let num = 0, den = 0;
+    for(let y = 0; y < h - dy; y += 2) for(let x = 0; x < w - dx; x += 2){ const p = g[y*w+x] - m, q = g[(y+dy)*w+x+dx] - m; num += p*q; den += p*p; }
+    if(den) rep = Math.max(rep, num / den);
+  }
+  const lapV = lap / ln, tex = magS / ln;
+  const fS = clamp01(feat / n / .012), cS = clamp01(sd / 55), rS = clamp01((hi - lo) / 170), bS = clamp01(lapV / 500), resS = clamp01(Math.min(W0, H0) / 480), tS = clamp01(tex / 22);
+  let score = 100 * (.25*fS + .2*cover + .15*cS + .1*rS + .15*bS + .05*resS + .1*(1 - blank));
+  score *= 1 - .6 * Math.max(0, rep - .45); score = Math.round(clamp01(score / 100) * 100);
+  const issues = [];
+  if(Math.min(W0, H0) < 400) issues.push("رزولوشن پایین است؛ تصویر بزرگ‌تری بدهید.");
+  if(fS < .35) issues.push("نقاط ویژگی (گوشه/جزئیات) کم است؛ تصویر پرجزئیات‌تر انتخاب کنید.");
+  if(cover < .5) issues.push("ویژگی‌ها در سطح تصویر پخش نیستند؛ بخش‌های خالی را با جزئیات پر کنید.");
+  if(blank > .4) issues.push("بخش زیادی از تصویر صاف و بدون اطلاعات است.");
+  if(cS < .35 || rS < .4) issues.push("کنتراست/محدوده‌ی روشنایی کم است.");
+  if(bS < .3) issues.push("تصویر بلور یا نرم است.");
+  if(rep > .6) issues.push("الگوی تکراری زیاد است و ممکن است تطبیق اشتباه شود.");
+  const stab = score >= 80 ? "Excellent" : score >= 60 ? "Good" : score >= 40 ? "Fair" : "Low";
+  return { score, res: W0 + " × " + H0, feat, fL: lvl(fS), cover: Math.round(cover*100), cL: lvl(cS), tL: lvl(tS), bL: bS > .6 ? "Low" : bS > .3 ? "Medium" : "High",
+    blank: Math.round(blank*100), repL: rep > .6 ? "High" : rep > .45 ? "Medium" : "Low", range: Math.round(hi - lo) + "/255", sat: Math.round(sat*100), stab,
+    msg: score >= 60 && !issues.length ? "این تصویر برای Image Tracking مناسب است." : (score >= 60 ? "این تصویر قابل‌قبول است، اما:<br>" : "این تصویر feature کافی ندارد و ممکن است در زاویه‌های شدید Tracking ناپایدار شود.<br>") + issues.join("<br>") };
+}
+function showReport(r){
+  const e = $("rep"); e.style.display = "block";
+  e.innerHTML = `<label>Target Quality: <b dir="ltr">${r.score}/100</b></label><small dir="ltr" style="line-height:1.9;margin:0">Resolution ${r.res}<br>Feature Points (est.) ${r.feat} · ${r.fL}<br>Distribution ${r.cover}% · Contrast ${r.cL} · Texture ${r.tL}<br>Blur ${r.bL} · Blank ${r.blank}% · Repetition ${r.repL}<br>Dynamic Range ${r.range} · Saturation ${r.sat}%<br>Expected Stability: ${r.stab}</small><div style="font-size:13px;line-height:1.8;margin-top:8px">${r.msg}</div>`;
+}
+
+/* ---------- File pickers ---------- */
+$("refIn").onchange = e => {
+  const f = e.target.files[0]; if(!f) return;
+  if(!f.type.startsWith("image/")){ showError("Reference Image باید یک فایل تصویری باشد."); return; }
+  clearError(); refFile = f; $("refName").textContent = f.name;
+  const p = $("refPrev"); p.src = URL.createObjectURL(f); p.style.display = "block";
+  loadImage(p.src).then(i => showReport(analyze(i))).catch(() => {});
+};
+$("conIn").onchange = e => {
+  const f = e.target.files[0]; if(!f) return;
+  clearError();
+  conFile = f; conIsVideo = f.type.startsWith("video/"); $("conName").textContent = f.name;
+  const url = URL.createObjectURL(f);
+  const img = $("conPrev"), vid = $("conVPrev");
+  if(conIsVideo){
+    if(!document.createElement("video").canPlayType(f.type)){
+      showError("این فرمت ویدئو توسط مرورگر شما پشتیبانی نمی‌شود. از MP4 (H.264) استفاده کنید."); conFile=null; return;
+    }
+    img.style.display="none"; vid.style.display="block"; vid.src=url; vid.load();
+  } else {
+    if(!f.type.startsWith("image/")){ showError("AR Content باید تصویر یا ویدئو باشد."); conFile=null; return; }
+    vid.style.display="none"; img.src=url; img.style.display="block";
+  }
+};
+
+/* ---------- Helpers ---------- */
+function loadScript(src){
+  return new Promise((res, rej) => {
+    const s = document.createElement("script"); s.src = src; s.onload = res;
+    s.onerror = () => rej(new Error("بارگذاری کتابخانه ناموفق بود: " + src)); document.head.appendChild(s);
+  });
+}
+function loadImage(src){
+  return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("تصویر خوانده نشد.")); i.src = src; });
+}
+// Downscale large reference images (faster compile, same tracking quality)
+async function prepareReference(file){
+  const img = await loadImage(URL.createObjectURL(file));
+  const max = 900, s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+  const cx = c.getContext("2d", { willReadFrequently: true }); cx.drawImage(img, 0, 0, c.width, c.height);
+  // exposure-normalize: percentile contrast stretch on luminance (structure matters, not exposure)
+  const id = cx.getImageData(0, 0, c.width, c.height), px = id.data, hs = new Uint32Array(256), N = px.length / 4;
+  for(let i = 0; i < px.length; i += 4) hs[(.299*px[i] + .587*px[i+1] + .114*px[i+2]) | 0]++;
+  let a = 0, lo = 0, hi = 255; while(lo < 255 && (a += hs[lo]) < N * .01) lo++; a = 0; while(hi > 0 && (a += hs[hi]) < N * .01) hi--;
+  if(hi - lo > 20 && hi - lo < 215){ const k = 255 / (hi - lo); for(let i = 0; i < px.length; i += 4) for(let j = 0; j < 3; j++) px[i+j] = Math.max(0, Math.min(255, (px[i+j] - lo) * k)); cx.putImageData(id, 0, 0); }
+  return loadImage(c.toDataURL("image/jpeg", 0.92));
+}
+function cameraErrorMessage(err){
+  const n = err && err.name;
+  if(n === "NotAllowedError" || n === "PermissionDeniedError") return "دسترسی به دوربین رد شد. در تنظیمات مرورگر اجازه‌ی دوربین را بدهید و دوباره تلاش کنید.";
+  if(n === "NotFoundError" || n === "DevicesNotFoundError") return "هیچ دوربینی روی این دستگاه پیدا نشد.";
+  if(n === "NotReadableError") return "دوربین توسط برنامه‌ی دیگری در حال استفاده است.";
+  if(n === "OverconstrainedError") return "دوربین با تنظیمات درخواستی سازگار نیست.";
+  return "خطا در راه‌اندازی دوربین: " + (err && err.message ? err.message : err);
+}
+
+/* ---------- Start ---------- */
+$("start").onclick = async () => {
+  clearError();
+  if(!window.isSecureContext){ showError("دسترسی به دوربین فقط روی HTTPS یا localhost ممکن است. صفحه را از یک آدرس https باز کنید."); return; }
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ showError("مرورگر شما از دسترسی به دوربین پشتیبانی نمی‌کند. از Safari (iOS) یا Chrome (Android) استفاده کنید."); return; }
+  if(!window.WebGLRenderingContext){ showError("مرورگر شما از WebGL پشتیبانی نمی‌کند."); return; }
+  if(!refFile){ showError("ابتدا Reference Image را انتخاب کنید."); return; }
+  if(!conFile){ showError("ابتدا AR Content (تصویر یا ویدئو) را انتخاب کنید."); return; }
+
+  $("start").disabled = true;
+  $("ar").style.display = "block";
+  setStatus("Preparing…", ""); setLoading(true, "در حال تحلیل تصویر مرجع…", 0);
+
+  // Video must be created & started inside this user gesture (iOS autoplay rule)
+  let video = null;
+  if(conIsVideo){
+    video = document.createElement("video");
+    video.src = URL.createObjectURL(conFile);
+    video.loop = true; video.muted = true; video.playsInline = true;
+    video.setAttribute("playsinline", ""); video.setAttribute("webkit-playsinline", "");
+    video.crossOrigin = "anonymous";
+    try { await video.play(); video.pause(); } catch(_) {}
+  }
+
+  try{
+    // 1) Compile the reference image into a MindAR feature target (in-browser)
+    const { Compiler } = await import(MIND + "mindar-image.prod.js");
+    const refImg = await prepareReference(refFile);
+    const compiler = new Compiler();
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("تحلیل تصویر مرجع بیش از حد طول کشید. تصویر کوچک‌تر و پرجزئیات‌تری انتخاب کنید یا فایل .mind بدهید.")), 120000));
+    await Promise.race([compiler.compileImageTargets([refImg], p => setLoading(true, "در حال تحلیل تصویر مرجع… " + Math.round(p) + "٪", p / 100)), timeout]);
+    const mindBuf = await compiler.exportData();
+    const targetURL = URL.createObjectURL(new Blob([mindBuf]));
+    const aspect = refImg.height / refImg.width;
+
+    // 2) Load Three + MindAR three build
+    setLoading(true, "در حال بارگذاری موتور AR…", 1);
+    const THREE = await import("three");
+    const mod = await import(MIND + "mindar-image-three.prod.js");
+    const MindARThree = mod.MindARThree || (window.MINDAR && window.MINDAR.IMAGE && window.MINDAR.IMAGE.MindARThree);
+    if(!MindARThree) throw new Error("MindARThree بارگذاری نشد.");
+
+    // 3) Build AR scene
+    const mindar = new MindARThree({
+      container: $("view"), imageTargetSrc: targetURL,
+      uiLoading: "no", uiScanning: "no", uiError: "no",
+      filterMinCF: 1, filterBeta: 1000,   // effectively unfiltered; own adaptive filter below
+      warmupTolerance: 3, missTolerance: 12, maxTrack: 1
+    });
+    const { renderer, scene, camera } = mindar;
+
+    let texture, cAspect;
+    if(conIsVideo){
+      texture = new THREE.VideoTexture(video);
+      await new Promise(r => { if(video.videoWidth) r(); else video.onloadedmetadata = r; });
+      cAspect = video.videoHeight / video.videoWidth;
+    } else {
+      const cImg = await loadImage(URL.createObjectURL(conFile));
+      texture = new THREE.Texture(cImg); texture.needsUpdate = true;
+      cAspect = cImg.naturalHeight / cImg.naturalWidth;
+    }
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+
+    // Target is 1 unit wide, `aspect` tall. Fit content inside it (contain).
+    let w = 1, h = cAspect;
+    if(h > aspect){ h = aspect; w = h / cAspect; }
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide, toneMapped: false })
+    );
+    plane.position.z = 0.002; // sit just above the printed surface
+
+    const anchor = mindar.addAnchor(0);
+    const rig = new THREE.Group(); rig.matrixAutoUpdate = false; rig.visible = false; rig.add(plane); scene.add(rig);
+
+    /* ---- Tracking stabilizer: validation, confidence, adaptive filter, prediction, recovery ---- */
+    const E = { state: "SEARCHING", conf: 0, fps: 0, rate: 0, age: 0, cam: "" };
+    const V3 = () => new THREE.Vector3(), Q4 = () => new THREE.Quaternion();
+    const fp = V3(), fs = V3(), fq = Q4(), rP = V3(), rS = V3(), rQ = Q4(), pP = V3(), pQ = Q4(), tP = V3(), tQ = Q4(), vel = V3(), tmpQ = Q4(), idQ = Q4();
+    const corners = [[-.5, aspect/2], [.5, aspect/2], [.5, -aspect/2], [-.5, -aspect/2]].map(([x, y]) => new THREE.Vector3(x, y, 0));
+    let have = false, streak = 0, lastRaw = null, lastFresh = 0, lastSeen = 0, reacq = 0, prev = performance.now(), fN = 0, fT = prev, uN = 0, uT = prev, lastNdc = null, lowSince = 0, lastGeom = null;
+    const GRACE = 450, LEAD = 0.03;
+    function geom(m){
+      const pts = corners.map(c => c.clone().applyMatrix4(m).project(camera)), ok4 = pts.every(p => isFinite(p.x) && isFinite(p.y) && p.z < 1.0001);
+      let sg = 0, conv = true, area = 0;
+      for(let i = 0; i < 4; i++){ const a = pts[i], b = pts[(i+1)%4], c = pts[(i+2)%4], cr = (b.x-a.x)*(c.y-b.y) - (b.y-a.y)*(c.x-b.x); if(i === 0) sg = Math.sign(cr); else if(Math.sign(cr) !== sg) conv = false; area += a.x*b.y - b.x*a.y; }
+      const L = i => Math.hypot(pts[i].x - pts[(i+1)%4].x, pts[i].y - pts[(i+1)%4].y), r1 = L(0) / (L(2) || 1e-6), r2 = L(1) / (L(3) || 1e-6);
+      const sane = conv && ok4 && r1 < 3.5 && r1 > .28 && r2 < 3.5 && r2 > .28;
+      const inV = pts.filter(p => Math.abs(p.x) < 1.15 && Math.abs(p.y) < 1.15).length / 4;
+      lastNdc = pts; return { sane, area: Math.abs(area) / 2, inV };
+    }
+    function onFresh(now){
+      const g = anchor.group; g.matrix.decompose(rP, rQ, rS);
+      const gm = geom(g.matrix); lastGeom = gm;
+      if(have && rQ.dot(fq) < 0) rQ.set(-rQ.x, -rQ.y, -rQ.z, -rQ.w);
+      const dtU = Math.max(.004, (now - lastFresh) / 1000);
+      let temp = 1;
+      if(have){ const jp = rP.distanceTo(fp) / dtU, ja = 2 * Math.acos(Math.min(1, Math.abs(rQ.dot(fq)))) / dtU; temp = clamp01(1 - Math.max(jp / 40, ja / 25)); }
+      const c = 100 * (.25 * clamp01(gm.area / .12) + .2 * gm.inV + .35 * temp + .2 * clamp01(streak / 12));
+      E.conf = E.conf * .6 + (gm.sane ? c : Math.min(c, 20)) * .4;
+      if(have){ // velocity & prediction targets
+        vel.copy(rP).sub(pP).multiplyScalar(1 / dtU);
+        tmpQ.copy(pQ).invert().multiply(rQ); if(tmpQ.w < 0) tmpQ.set(-tmpQ.x, -tmpQ.y, -tmpQ.z, -tmpQ.w);
+        const lead = E.conf > 60 ? LEAD : 0, k = Math.min(3, lead / dtU);
+        tP.copy(rP).addScaledVector(vel, lead); if(tP.distanceTo(rP) > .25) tP.copy(rP).addScaledVector(vel.clone().setLength(.25), 1);
+        tQ.copy(rQ).multiply(idQ.clone().slerp(tmpQ, k));
+      } else { vel.set(0, 0, 0); tP.copy(rP); tQ.copy(rQ); }
+      pP.copy(rP); pQ.copy(rQ);
+      if(!have && streak >= 3 && gm.sane && E.conf >= 45){ have = true; fp.copy(rP); fq.copy(rQ); fs.copy(rS); rig.visible = true; if(video) video.play().catch(() => {}); }
+      else if(have && now - lastFresh > 120) reacq = now + 150; // returning after a gap: blend, don't snap
+      lastFresh = lastSeen = now; uN++;
+    }
+    function step(now){
+      const dt = Math.min(.1, (now - prev) / 1000) || .016; prev = now;
+      const g = anchor.group; let fresh = false;
+      if(g.visible){ const e = g.matrix.elements; if(!lastRaw || e.some((x, i) => x !== lastRaw[i])){ lastRaw = e.slice(); fresh = true; streak++; } } else streak = 0;
+      if(fresh) onFresh(now);
+      if(have){
+        const miss = now - lastSeen;
+        if(miss > GRACE || (E.conf < 15 && (lowSince = lowSince || now) && now - lowSince > GRACE)){ have = false; rig.visible = false; E.conf = 0; lowSince = 0; if(video) video.pause(); }
+        else {
+          if(E.conf >= 15) lowSince = 0;
+          const sp = vel.length(), slow = now < reacq;
+          const aP = 1 - Math.exp(-dt * (slow ? 12 : 14 + 25 * sp)), aR = 1 - Math.exp(-dt * (slow ? 12 : 14 + 10 * sp)), aS = 1 - Math.exp(-dt * 8);
+          if(miss < 60){ fp.lerp(tP, aP); fq.slerp(tQ, aR); fs.lerp(rS, aS); }
+          rig.matrix.compose(fp, fq, fs);
+        }
+      }
+      E.state = have ? (now - lastSeen > 80 ? "RECOVERING" : E.conf >= 60 ? "LOCKED" : "WEAK") : (g.visible ? "ACQUIRING" : "SEARCHING");
+      E.age = Math.round(now - lastFresh); fN++;
+      if(now - fT > 500){ E.fps = Math.round(fN * 1000 / (now - fT)); fN = 0; fT = now; }
+      if(now - uT > 500){ E.rate = Math.round(uN * 1000 / (now - uT)); uN = 0; uT = now; }
+      const stTxt = have ? (E.conf >= 80 ? "Excellent" : E.conf >= 60 ? "Good" : "Weak") : null;
+      if(have && !step.f){ step.f = 1; setStatus("Target Found · " + stTxt, "ok"); $("hint").style.opacity = 0; }
+      else if(have) setStatus("Target Found · " + stTxt, "ok");
+      else if(step.f){ step.f = 0; setStatus("Tracking Lost", "bad"); $("hint").style.opacity = 1; }
+      if(dbgOn) drawDebug();
+    }
+    /* ---- Debug overlay (triple-tap the status chip, or add #debug to the URL) ---- */
+    let dbgOn = location.hash === "#debug", taps = 0, tapT = 0;
+    const dbgC = $("dbgc"), dbgP = $("dbg"), dctx = dbgC.getContext("2d");
+    const setDbg = on => { dbgOn = on; dbgC.style.display = dbgP.style.display = on ? "block" : "none"; };
+    setDbg(dbgOn);
+    document.querySelector("#top .chip").onclick = () => { const t = performance.now(); taps = t - tapT < 600 ? taps + 1 : 1; tapT = t; if(taps >= 3){ setDbg(!dbgOn); taps = 0; } };
+    function drawDebug(){
+      const r = renderer.domElement.getBoundingClientRect(), R = $("view").getBoundingClientRect();
+      dbgC.width = R.width; dbgC.height = R.height; dctx.clearRect(0, 0, R.width, R.height);
+      if(lastNdc && (have || anchor.group.visible)){
+        dctx.strokeStyle = have ? "#0f0" : "#fa0"; dctx.lineWidth = 3; dctx.beginPath();
+        lastNdc.forEach((p, i) => { const x = r.left - R.left + (p.x + 1) / 2 * r.width, y = r.top - R.top + (1 - p.y) / 2 * r.height; i ? dctx.lineTo(x, y) : dctx.moveTo(x, y); });
+        dctx.closePath(); dctx.stroke();
+      }
+      dbgP.textContent = `TRACKING: ${E.state}\nCONFIDENCE: ${Math.round(E.conf)}%\nFPS: ${E.fps}\nPOSE RATE: ${E.rate}/s\nPOSE AGE: ${E.age}ms\nCAMERA: ${E.cam}\nCORNER AREA: ${lastGeom ? (lastGeom.area * 100).toFixed(1) + "%" : "-"}\nINLIERS / REPROJ: n/a (engine internal)`;
+    }
+    session = { step, E };
+
+    // Pinch / wheel to scale the AR content
+    const MIN_S = 0.2, MAX_S = 5;
+    const clampS = v => Math.min(MAX_S, Math.max(MIN_S, v));
+    const view = $("view"), ptrs = new Map();
+    let startDist = 0, startScale = 1;
+    const dist = () => { const [a, b] = [...ptrs.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+    const onDown = e => {
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if(ptrs.size === 2){ startDist = dist(); startScale = plane.scale.x; }
+    };
+    const onMove = e => {
+      if(!ptrs.has(e.pointerId)) return;
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if(ptrs.size === 2 && startDist > 0){
+        const s = clampS(startScale * dist() / startDist);
+        plane.scale.set(s, s, 1);
+      }
+    };
+    const onUp = e => { ptrs.delete(e.pointerId); startDist = 0; };
+    const onWheel = e => {
+      e.preventDefault();
+      const s = clampS(plane.scale.x * (e.deltaY < 0 ? 1.08 : 0.92));
+      plane.scale.set(s, s, 1);
+    };
+    view.addEventListener("pointerdown", onDown);
+    view.addEventListener("pointermove", onMove);
+    view.addEventListener("pointerup", onUp);
+    view.addEventListener("pointercancel", onUp);
+    view.addEventListener("wheel", onWheel, { passive: false });
+
+    // 4) Start camera + tracking
+    setLoading(true, "در حال راه‌اندازی دوربین…", 1);
+    const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = c => {
+      const hi = c && c.video ? { ...c, video: { ...(typeof c.video === "object" ? c.video : {}), width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60, max: 60 } } } : c;
+      return gum(hi).catch(() => gum(c)); // graceful degradation to MindAR's default request
+    };
+    try { await mindar.start(); } finally { navigator.mediaDevices.getUserMedia = gum; }
+    try { const st = mindar.video.srcObject.getVideoTracks()[0].getSettings(); E.cam = st.width + "×" + st.height + "@" + Math.round(st.frameRate || 0); } catch(_) {}
+    setLoading(false);
+    setStatus("Camera Ready → Searching", "");
+    setTimeout(() => { if($("status").textContent.startsWith("Camera Ready")) setStatus("Searching", ""); }, 900);
+
+    renderer.setAnimationLoop(t => { step(t); renderer.render(scene, camera); });
+
+    // 5) Video controls
+    if(video){
+      $("bar").style.visibility = "visible";
+      $("playBtn").onclick = () => {
+        if(video.paused){ video.play(); $("playBtn").textContent = "⏸ Pause"; }
+        else { video.pause(); $("playBtn").textContent = "▶ Play"; }
+      };
+      $("muteBtn").onclick = () => {
+        video.muted = !video.muted;
+        $("muteBtn").textContent = video.muted ? "🔇 Unmute" : "🔊 Mute";
+        if(video.paused && !video.muted) video.play().catch(()=>{});
+      };
+    } else $("bar").style.visibility = "hidden";
+
+    Object.assign(session, { mindar, renderer, video, targetURL });
+  } catch(err){
+    console.error(err);
+    stopAR();
+    if(err && (err.name || "").match(/NotAllowed|NotFound|NotReadable|Overconstrained|PermissionDenied|DevicesNotFound/))
+      showError(cameraErrorMessage(err));
+    else if(String(err && err.message).match(/camera|getUserMedia/i)) showError(cameraErrorMessage(err));
+    else showError("خطا: " + (err && err.message ? err.message : err) + " — اتصال اینترنت (برای CDN) و تصویر مرجع را بررسی کنید.");
+  }
+};
+
+/* ---------- Stop ---------- */
+function stopAR(){
+  try{
+    if(session){
+      session.renderer.setAnimationLoop(null);
+      session.mindar.stop();
+      if(session.video){ session.video.pause(); session.video.removeAttribute("src"); session.video.load(); }
+      session.renderer.dispose();
+      session = null;
+    }
+  }catch(e){ console.warn(e); }
+  $("view").innerHTML = "";
+  $("ar").style.display = "none";
+  setLoading(false);
+  $("hint").style.opacity = 1;
+  $("start").disabled = false;
+}
+$("stopBtn").onclick = stopAR;
+</script>
+</body>
+</html>
